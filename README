@@ -12,7 +12,9 @@ arguments:
 -t # will set the total number of real seconds OSS will limit its run.  Default is 20.
 -h 	 will print a help message.
 
-Source with revision control is at https://github.com/chrisbartz/cs4760-p3
+Source with revision control is at https://github.com/chrisbartz/cs4760-p4
+
+#########  UPDATE BELOW HERE  ######################
 
 The project has most requirements working or at least attempted:
 
