@@ -1,0 +1,68 @@
+//Christopher Bartz
+//cyb01b
+//CS4760 S02
+//Project 4
+
+syntax: ./oss <arguments>
+
+arguments:
+-l testfilename will specify a custom log filename.  Default is log.out.
+-q # will set a custom quantum amount for incrementing the OSS clock each cycle.  Default is 10000.
+-s # will set the number of concurrent slave processes.  Default is 5. 
+-t # will set the total number of real seconds OSS will limit its run.  Default is 20.
+-h 	 will print a help message.
+
+Source with revision control is at https://github.com/chrisbartz/cs4760-p3
+
+The project has most requirements working or at least attempted:
+
+Both:
+shared memory working
+semaphores working
+
+Parent:
+OSS use of fork working
+OSS use of exec working
+OSS forks off children before starting OSS clock 
+OSS forks more children as others terminate 
+OSS allocates shared memory
+OSS maintains a system clock in shared memory
+OSS clock consists of 1 integers for seconds and useconds
+OSS clock initially set to 0
+OSS increments the clock every loop
+OSS checks shmMsg for messages from USER
+OSS outpus USER message to a log file
+OSS terminates after 2 OSS seconds or 100 processes or 20 real seconds
+OSS cleans up semaphores - memory cleanup is still an issue **
+OSS handles SIGINT by killing child processes and cleaning up shared memory, semaphores, and open files
+
+Children:
+USER is a separate executable from OSS
+USER can view OSS clock in shared memory but do not change it
+USER can send messages through shared memory named shmMsg
+USER reads OSS time through shared memory and then calculates a "random" time to terminate
+USER controls critical section through use of semaphores
+USER sends a message to OSS when its time is up and then terminates
+USER cedes its turn after it is finished with the critical section
+USER waits for the shmMsg to be clear before writing in the critical section
+USER processes will terminate if a SIGTERM is received
+
+Others:
+project is available in Github
+makefile implemented
+README implemented
+default settings will spawn up to 100 children in 2 OSS seconds or up to 20 real seconds
+
+There are a few example commands that work for this project
+
+./oss 
+./oss -l thisisastrangelogfilename.log
+./oss -q 10001
+./oss -s 6
+./oss -t 5000
+./oss -l notagreatcombo.log -q 1 -s 15 -t 5000
+
+
+
+
+
