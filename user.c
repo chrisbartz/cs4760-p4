@@ -12,12 +12,12 @@
 #include "sharedMemory.h"
 #include "timestamp.h"
 
-#define DEBUG 0 // setting to 1 greatly increases number of logging events
-#define TUNING 0
+#define DEBUG 1 			// setting to 1 greatly increases number of logging events
+#define TUNING 1
 #define WAIT_INTERVAL 150 * 1000 * 1000 // max time to wait
 
-SmTimeStruct shmMsg;
-SmTimeStruct *p_shmMsg;
+SmStruct shmMsg;
+SmStruct *p_shmMsg;
 
 int childId; 				// store child id number assigned from parent
 int startSeconds;			// store oss seconds when initializing shared memory
@@ -125,15 +125,15 @@ exit(0);
 // implemented correctly since it accesses shared resources
 void critical_section() {
 
-	while (p_shmMsg->userPid != 0); // wait until shmMsg is clear
-//	if (DEBUG) fprintf(stdout, "user  %s: child %d updating shared memory\n", timeVal, (int) getpid());
-
-	// lets capture this moment in time
-	exitSeconds = p_shmMsg->ossSeconds;
-	exitUSeconds = p_shmMsg->ossUSeconds;
-
-	p_shmMsg->userPid = (int) getpid();
-	p_shmMsg->userSeconds = exitSeconds;
-	p_shmMsg->userUSeconds = exitUSeconds;
+//	while (p_shmMsg->userPid != 0); // wait until shmMsg is clear
+////	if (DEBUG) fprintf(stdout, "user  %s: child %d updating shared memory\n", timeVal, (int) getpid());
+//
+//	// lets capture this moment in time
+//	exitSeconds = p_shmMsg->ossSeconds;
+//	exitUSeconds = p_shmMsg->ossUSeconds;
+//
+//	p_shmMsg->userPid = (int) getpid();
+//	p_shmMsg->userSeconds = exitSeconds;
+//	p_shmMsg->userUSeconds = exitUSeconds;
 
 }

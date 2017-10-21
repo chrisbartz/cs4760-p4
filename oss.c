@@ -16,46 +16,53 @@
 #include "sharedMemory.h"
 #include "timestamp.h"
 
-#define DEBUG 0 						// setting to 1 greatly increases number of logging events
-#define VERBOSE 0
+#define DEBUG 1								// setting to 1 greatly increases number of logging events
+#define VERBOSE 1
 #define TUNING 0
 
-//int i = 0;
-int totalChildProcessCount = 0; 	// number of total child processes spawned
+const int maxChildProcessCount = 100; 		// limit of total child processes spawned
+const int maxWaitInterval = 3;				// limit on how many seconds to wait until we spawn the next child
+
+int totalChildProcessCount = 0; 		// number of total child processes spawned
 int signalIntercepted = 0; 				// flag to keep track when sigint occurs
-int lastChildProcesses = -1;
-int ossSeconds;							// store seconds
-int ossUSeconds;						// store nanoseconds
-int quantum = 10000;					// how many nanoseconds to increment each loop
+//int lastChildProcesses = -1;
+int ossSeconds;							// store oss seconds
+int ossUSeconds;						// store oss nanoseconds
+int quantum = 1000000000;				// base for how many nanoseconds to increment each loop; default is 1 sec
 
 long timeStarted = 0;					// when the OSS clock started
 long timeToStop = 0;					// when the OSS should exit in real time
 
-SmTimeStruct shmMsg;
-SmTimeStruct *p_shmMsg;
-pid_t childpids[5000]; 				// keep track of all spawned child pids
-
+SmStruct shmMsg;
+SmStruct *p_shmMsg;
 sem_t *sem;
 
-void signal_handler(int signalIntercepted); // handle sigint interrupt
-void increment_clock(); // update oss clock in shared memory
-void kill_detach_destroy_exit(int status); // kill off all child processes and shared memory
+pid_t childpids[5000]; 					// keep track of all spawned child pids
+
+void signal_handler(int signalIntercepted); 	// handle sigint interrupt
+void increment_clock(int offset); 				// update oss clock in shared memory
+void kill_detach_destroy_exit(int status); 		// kill off all child processes and shared memory
+int pcbMapNextAvailableIndex();
+void pcbAssign(int pcbMap[], int index, int pid);
+void pcbDelete(int pcbMap[], int index);
 
 int main(int argc, char *argv[]) {
 	int childProcessCount = 0;			// number of child processes spawned
-	int maxChildProcessCount = 100; 	// limit of total child processes spawned
-	int childProcessMessageCount = 0;
 	int opt; 							// to support argument switches below
 	pid_t childpid;						// store child pid
+	int pcbMap[MAX_PROCESS_CONTROL_BLOCKS];// for keeping track of used pcb blocks
 	char timeVal[30]; 					// store formatted time string for display in logging
 
-	int maxConcSlaveProcesses = 5;		// max concurrent child processes
-	int maxOssTimeLimitSeconds = 2;
+	int maxConcSlaveProcesses = 2;		// max concurrent child processes
+	int maxOssTimeLimitSeconds = 2;		// max run time in oss seconds
 	char logFileName[50]; 				// name of log file
 	strncpy(logFileName, "log.out", sizeof(logFileName)); // set default log file name
 	int totalRunSeconds = 20; 			// set default total run time in seconds
 	int goClock = 0;
 
+	time_t t;
+	srand((unsigned)time(&t)); 					// random generator
+	int interval = (rand() % maxWaitInterval);
 
 	//gather option flags
 	while ((opt = getopt(argc, argv, "hl:q:s:t:")) != -1) {
@@ -101,7 +108,7 @@ int main(int argc, char *argv[]) {
 
 	// instantiate shared memory from oss
 	getTime(timeVal);
-	if (DEBUG) printf("\n\nmaster %s: create shared memory\n", timeVal);
+	if (DEBUG) printf("\n\nOSS %s: create shared memory\n", timeVal);
 
 	// refactored shared memory using struct
 	int shmid;
@@ -115,9 +122,12 @@ int main(int argc, char *argv[]) {
 
 	p_shmMsg->ossSeconds = 0;
 	p_shmMsg->ossUSeconds = 0;
-	p_shmMsg->userSeconds = 0;
-	p_shmMsg->userUSeconds = 0;
-	p_shmMsg->userPid = 0;
+	p_shmMsg->dispatchedPid = 0;
+	p_shmMsg->dispatchedTime = 0;
+
+	// initialize pcbMap and pcbs
+	for (int i = 0; i < MAX_PROCESS_CONTROL_BLOCKS; i++)
+		pcbDelete(pcbMap, i);
 
 	// open semaphore
 	sem = open_semaphore(1);
@@ -126,7 +136,7 @@ int main(int argc, char *argv[]) {
 	signal(SIGINT, signal_handler);
 
 	getTime(timeVal);
-	if (DEBUG && VERBOSE) printf("master %s: entering main loop\n", timeVal);
+	if (DEBUG && VERBOSE) printf("OSS %s: entering main loop\n", timeVal);
 
 	// this is the main loop
 	while (1) {
@@ -141,23 +151,23 @@ int main(int argc, char *argv[]) {
 
 		// we put limits on the number of processes and time
 		// if we hit limit then we kill em all
-		if (childProcessMessageCount >= maxChildProcessCount			// process count limit
-				|| ossSeconds >= maxOssTimeLimitSeconds || 			// OSS time limit
-				(timeToStop != 0 && timeToStop < getUnixTime())) { 	// real time limit
-
-			char typeOfLimit[50];
-			strncpy(typeOfLimit,"",50);
-			if (totalChildProcessCount >= maxChildProcessCount) strncpy(typeOfLimit,"because of process limit",50);
-			if (ossSeconds > maxOssTimeLimitSeconds ) strncpy(typeOfLimit,"because of OSS time limit",50);
-			if (timeToStop != 0 && timeToStop < getUnixTime()) strncpy(typeOfLimit,"because of real time limit (20s)",50);
-
-			getTime(timeVal);
-//			if (TUNING)
-				printf("\nmaster %s: Halting %s.\nTotal Processes Spawned: %d\nTotal Processes Reported Time: %d\nOSS Seconds: %d.%09d\nStop Time:    %ld\nCurrent Time: %ld\n",
-					timeVal, typeOfLimit, totalChildProcessCount, childProcessMessageCount, ossSeconds, ossUSeconds, timeToStop, getUnixTime());
-
-			kill_detach_destroy_exit(0);
-		}
+//		if (childProcessMessageCount >= maxChildProcessCount			// process count limit
+//				|| ossSeconds >= maxOssTimeLimitSeconds || 			// OSS time limit
+//				(timeToStop != 0 && timeToStop < getUnixTime())) { 	// real time limit
+//
+//			char typeOfLimit[50];
+//			strncpy(typeOfLimit,"",50);
+//			if (totalChildProcessCount >= maxChildProcessCount) strncpy(typeOfLimit,"because of process limit",50);
+//			if (ossSeconds > maxOssTimeLimitSeconds ) strncpy(typeOfLimit,"because of OSS time limit",50);
+//			if (timeToStop != 0 && timeToStop < getUnixTime()) strncpy(typeOfLimit,"because of real time limit (20s)",50);
+//
+//			getTime(timeVal);
+////			if (TUNING)
+//				printf("\nOSS %s: Halting %s.\nTotal Processes Spawned: %d\nTotal Processes Reported Time: %d\nOSS Seconds: %d.%09d\nStop Time:    %ld\nCurrent Time: %ld\n",
+//					timeVal, typeOfLimit, totalChildProcessCount, childProcessMessageCount, ossSeconds, ossUSeconds, timeToStop, getUnixTime());
+//
+//			kill_detach_destroy_exit(0);
+//		}
 
 		if (childpid != 0 && goClock) {
 			if (timeToStop == 0) {
@@ -171,10 +181,10 @@ int main(int argc, char *argv[]) {
 				timeToStop = timeStarted + (1000 * totalRunSeconds);
 				getTime(timeVal);
 				if (TUNING)
-					printf("master %s: OSS starting clock.  Real start time: %ld  Real stop time: %ld\n", timeVal, timeStarted, timeToStop);
+					printf("OSS %s: OSS starting clock.  Real start time: %ld  Real stop time: %ld\n", timeVal, timeStarted, timeToStop);
 			}
 
-			increment_clock();
+			increment_clock(quantum);
 		}
 
 
@@ -190,35 +200,41 @@ int main(int argc, char *argv[]) {
 			nanosleep(&timeperiod, NULL);
 
 			// wait for child to send message
-			if (p_shmMsg->userPid == 0)
+			if (p_shmMsg->dispatchedPid == 0)
 				continue; // jump back to the beginning of the loop if still waiting for message
 
 			getTime(timeVal);
 //			if (DEBUG)
-				printf("master %s: Child %d is terminating at my time %d.%09d because it reached %d.%09d in slave\n",
-						timeVal, p_shmMsg->userPid, ossSeconds, ossUSeconds, p_shmMsg->userSeconds, p_shmMsg->userUSeconds);
-			fprintf(logFile,"master %s: Child %d is terminating at my time %d.%09d because it reached %d.%09d in slave\n",
-					timeVal, p_shmMsg->userPid, ossSeconds, ossUSeconds, p_shmMsg->userSeconds, p_shmMsg->userUSeconds);
+//				printf("OSS %s: Child %d is terminating at my time %d.%09d because it reached %d.%09d in slave\n",
+//						timeVal, p_shmMsg->userPid, ossSeconds, ossUSeconds, p_shmMsg->userSeconds, p_shmMsg->userUSeconds);
+//			fprintf(logFile,"OSS %s: Child %d is terminating at my time %d.%09d because it reached %d.%09d in slave\n",
+//					timeVal, p_shmMsg->userPid, ossSeconds, ossUSeconds, p_shmMsg->userSeconds, p_shmMsg->userUSeconds);
 
-			p_shmMsg->userSeconds = 0;
-			p_shmMsg->userUSeconds = 0;
-			p_shmMsg->userPid = 0;
+//			p_shmMsg->userSeconds = 0;
+//			p_shmMsg->userUSeconds = 0;
+//			p_shmMsg->userPid = 0;
 
-			childProcessMessageCount++;
+//			childProcessMessageCount++;
 			childProcessCount--; //because a child process completed
-			lastChildProcesses = childProcessCount;
+//			lastChildProcesses = childProcessCount;
 
 		}
+
+
+
+		int assignedPcb = pcbMapNextAvailableIndex(pcbMap);
+		getTime(timeVal);
+		if (DEBUG && VERBOSE && assignedPcb != -1) printf("OSS %s: Child (fork #%d from parent) has been assigned pcb index: %d\n", timeVal, totalChildProcessCount, assignedPcb);
+		if (assignedPcb == -1) // if no available pcbs then wait
+			continue;
 
 		char iStr[1];
 		sprintf(iStr, "%d", totalChildProcessCount);
 
-		int retryCount = 10;
+		char assignedPcbStr[2];
+		sprintf(assignedPcbStr, "%d", assignedPcb);
 
-		while((childpid = fork()) < 0 && retryCount > 0) {
-			retryCount--;
-		}
-
+		childpid = fork();
 
 		// if error creating fork
 		if (childpid == -1) {
@@ -230,14 +246,11 @@ int main(int argc, char *argv[]) {
 		// child will execute
 		if (childpid == 0) {
 			getTime(timeVal);
-			if (DEBUG && VERBOSE) printf("master %s: child check pid: %d\n", timeVal, getpid());
-
+			if (DEBUG) printf("OSS %s: Child %d (fork #%d from parent) will attempt to execl user\n", timeVal, getpid(), totalChildProcessCount);
+			int status = execl("./user", iStr, assignedPcbStr, NULL);
 			getTime(timeVal);
-			if (DEBUG) printf("master %s: Child %d (fork #%d from parent) will attempt to execl user\n", timeVal, getpid(), totalChildProcessCount);
-			int status = execl("./user", iStr, NULL);
-			getTime(timeVal);
-			if (status) printf("master %s: Child (fork #%d from parent) has failed to execl user error: %d\n", timeVal, totalChildProcessCount, errno);
-			perror("master: Child failed to execl() the command");
+			if (status) printf("OSS %s: Child (fork #%d from parent) has failed to execl user error: %d\n", timeVal, totalChildProcessCount, errno);
+			perror("OSS: Child failed to execl() the command");
 			return 1;
 		}
 
@@ -250,12 +263,13 @@ int main(int argc, char *argv[]) {
 			totalChildProcessCount++;
 
 			getTime(timeVal);
-			if (DEBUG || TUNING) printf("master %s: parent forked child %d at %d.%09d = childPid: %d\n", timeVal, totalChildProcessCount - 1, ossSeconds, ossUSeconds, (int) childpid);
+			if (DEBUG || TUNING) printf("OSS %s: Generating process with PID %d and putting it in queue %d at time %d.%09d\n", timeVal, (int) childpid, 0, ossSeconds, ossUSeconds);
+			fprintf(logFile,"OSS %s: Generating process with PID %d and putting it in queue %d at time %d.%09d\n", timeVal, (int) childpid, 0, ossSeconds, ossUSeconds);
 
 		}
-
-		getTime(timeVal);
-		if (DEBUG && VERBOSE) printf("master %s: end of while loop pid: %d\n", timeVal, getpid());
+//
+//		getTime(timeVal);
+//		if (DEBUG && VERBOSE) printf("OSS %s: end of while loop pid: %d\n", timeVal, getpid());
 	} //end while loop
 
 	fclose(logFile);
@@ -276,18 +290,18 @@ void signal_handler(int signal) {
 	signalIntercepted = 1;
 }
 
-void increment_clock() {
-	const int oneMillion = 1000000000;
+void increment_clock(int offset) {
+	const int oneBillion = 1000000000;
 
-	ossUSeconds += quantum;
+	ossUSeconds += offset;
 
-	if (ossUSeconds >= oneMillion) {
+	if (ossUSeconds >= oneBillion) {
 		ossSeconds++;
-		ossUSeconds -= oneMillion;
+		ossUSeconds -= oneBillion;
 	}
 
-//	if (DEBUG)
-//		printf("master: updating oss clock to %d.%09d\n", ossSeconds, ossUSeconds );
+	if (0 && DEBUG && VERBOSE)
+		printf("master: updating oss clock to %d.%09d\n", ossSeconds, ossUSeconds );
 	p_shmMsg->ossSeconds = ossSeconds;
 	p_shmMsg->ossUSeconds = ossUSeconds;
 
@@ -313,3 +327,24 @@ void kill_detach_destroy_exit(int status) {
 
 	exit(status);
 }
+
+int pcbMapNextAvailableIndex(int pcbMap[]) {
+	for (int i = 0; i < MAX_PROCESS_CONTROL_BLOCKS; i++) {
+		if (!pcbMap[i])
+			return i;
+	}
+	return -1;
+}
+ void pcbAssign(int pcbMap[], int index, int pid) {
+	 pcbMap[index] = 1;
+	 p_shmMsg->pcb[index].pid = pid;
+ }
+
+ void pcbDelete(int pcbMap[], int index) {
+ 	 pcbMap[index] = 0;
+ 	 p_shmMsg->pcb[index].lastBurstLength = 0;
+ 	 p_shmMsg->pcb[index].pid = 0;
+ 	 p_shmMsg->pcb[index].processPriority = 0;
+ 	 p_shmMsg->pcb[index].totalCpuTime = 0;
+ 	 p_shmMsg->pcb[index].totalTimeInSystem = 0;
+  }
