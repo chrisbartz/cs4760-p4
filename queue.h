@@ -11,6 +11,8 @@
 
 int pop(int queue[]);
 
+int peek(int queue[]);
+
 void push_back(int queue[], int pushValue);
 
 void initialize(int queue[]);

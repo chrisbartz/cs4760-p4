@@ -35,9 +35,9 @@ typedef struct {
 	int ossUSeconds;
 	int dispatchedPid;
 	int dispatchedTime;
-//	int userSeconds;
-//	int userUSeconds;
-	int userTermPid;
+	int userPid;
+	int userHaltSignal;
+	int userHaltTime;
 	SmProcessControlBlock pcb[MAX_PROCESS_CONTROL_BLOCKS];
 } SmStruct;
 

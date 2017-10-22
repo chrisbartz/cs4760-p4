@@ -19,6 +19,10 @@ int pop(int queue[]) {
 	return returnValue;
 }
 
+int peek(int queue[]) {
+	return queue[0];
+}
+
 void push_back(int queue[], int pushValue) {
 	for (int i = 0; i < MAX_PROCESS_CONTROL_BLOCKS; i++) {
 		if (queue[i] < 0) {

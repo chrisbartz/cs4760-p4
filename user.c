@@ -127,14 +127,15 @@ exit(0);
 // implemented correctly since it accesses shared resources
 void critical_section() {
 
-	while (p_shmMsg->userTermPid != 0); // wait until shmMsg is clear
+	while (p_shmMsg->userPid != 0); // wait until shmMsg is clear
 //	if (DEBUG) fprintf(stdout, "user  %s: child %d updating shared memory\n", timeVal, (int) getpid());
 
 	// lets capture this moment in time
 	exitSeconds = p_shmMsg->ossSeconds;
 	exitUSeconds = p_shmMsg->ossUSeconds;
 
-	p_shmMsg->userTermPid = (int) getpid();
+	p_shmMsg->userPid = (int) getpid();
+	p_shmMsg->userHaltSignal = 1;
 //	p_shmMsg->userSeconds = exitSeconds;
 //	p_shmMsg->userUSeconds = exitUSeconds;
 
