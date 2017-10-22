@@ -11,6 +11,7 @@
 #include <sys/wait.h>
 #include "sharedMemory.h"
 #include "timestamp.h"
+#include "queue.h"
 
 #define DEBUG 1 			// setting to 1 greatly increases number of logging events
 #define TUNING 1
@@ -85,7 +86,8 @@ if (childId < 0) {
 	timeperiod.tv_sec = 0;
 	timeperiod.tv_nsec = 5 * 1000;
 
-	while (!(p_shmMsg->ossSeconds >= endSeconds && p_shmMsg->ossUSeconds >= endUSeconds)) {
+	while (!(p_shmMsg->ossSeconds > endSeconds
+			|| (p_shmMsg->ossSeconds == endSeconds && p_shmMsg->ossUSeconds >= endUSeconds))) {
 		// reduce the cpu load from looping
 		nanosleep(&timeperiod, NULL);
 	} // wait for the end
@@ -125,14 +127,14 @@ exit(0);
 // implemented correctly since it accesses shared resources
 void critical_section() {
 
-//	while (p_shmMsg->userPid != 0); // wait until shmMsg is clear
-////	if (DEBUG) fprintf(stdout, "user  %s: child %d updating shared memory\n", timeVal, (int) getpid());
-//
-//	// lets capture this moment in time
-//	exitSeconds = p_shmMsg->ossSeconds;
-//	exitUSeconds = p_shmMsg->ossUSeconds;
-//
-//	p_shmMsg->userPid = (int) getpid();
+	while (p_shmMsg->userTermPid != 0); // wait until shmMsg is clear
+//	if (DEBUG) fprintf(stdout, "user  %s: child %d updating shared memory\n", timeVal, (int) getpid());
+
+	// lets capture this moment in time
+	exitSeconds = p_shmMsg->ossSeconds;
+	exitUSeconds = p_shmMsg->ossUSeconds;
+
+	p_shmMsg->userTermPid = (int) getpid();
 //	p_shmMsg->userSeconds = exitSeconds;
 //	p_shmMsg->userUSeconds = exitUSeconds;
 

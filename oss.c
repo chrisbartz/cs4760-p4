@@ -15,6 +15,7 @@
 #include <sys/wait.h>
 #include "sharedMemory.h"
 #include "timestamp.h"
+#include "queue.h"
 
 #define DEBUG 1								// setting to 1 greatly increases number of logging events
 #define VERBOSE 1
@@ -45,6 +46,7 @@ void kill_detach_destroy_exit(int status); 		// kill off all child processes and
 int pcbMapNextAvailableIndex();
 void pcbAssign(int pcbMap[], int index, int pid);
 void pcbDelete(int pcbMap[], int index);
+int pcbFindIndex(int pid);
 
 int main(int argc, char *argv[]) {
 	int childProcessCount = 0;			// number of child processes spawned
@@ -59,6 +61,18 @@ int main(int argc, char *argv[]) {
 	strncpy(logFileName, "log.out", sizeof(logFileName)); // set default log file name
 	int totalRunSeconds = 20; 			// set default total run time in seconds
 	int goClock = 0;
+
+	// set up priority queues
+	int priQueues[3][MAX_PROCESS_CONTROL_BLOCKS];
+	int hipri = 0;
+	int medpri = 1;
+	int lopri = 2;
+
+	initialize(priQueues[hipri]);
+	initialize(priQueues[medpri]);
+	initialize(priQueues[lopri]);
+
+//	printQueue(priQueues[hipri]);
 
 	time_t t;
 	srand((unsigned)time(&t)); 					// random generator
@@ -200,19 +214,21 @@ int main(int argc, char *argv[]) {
 			nanosleep(&timeperiod, NULL);
 
 			// wait for child to send message
-			if (p_shmMsg->dispatchedPid == 0)
+			if (p_shmMsg->userTermPid == 0)
 				continue; // jump back to the beginning of the loop if still waiting for message
 
-			getTime(timeVal);
-//			if (DEBUG)
-//				printf("OSS %s: Child %d is terminating at my time %d.%09d because it reached %d.%09d in slave\n",
-//						timeVal, p_shmMsg->userPid, ossSeconds, ossUSeconds, p_shmMsg->userSeconds, p_shmMsg->userUSeconds);
-//			fprintf(logFile,"OSS %s: Child %d is terminating at my time %d.%09d because it reached %d.%09d in slave\n",
-//					timeVal, p_shmMsg->userPid, ossSeconds, ossUSeconds, p_shmMsg->userSeconds, p_shmMsg->userUSeconds);
+			int pcbIndex = pcbFindIndex(p_shmMsg->userTermPid);
 
-//			p_shmMsg->userSeconds = 0;
-//			p_shmMsg->userUSeconds = 0;
-//			p_shmMsg->userPid = 0;
+			getTime(timeVal);
+			if (DEBUG) printf("OSS %s: Child %d is terminating at my time %d.%09d\n",
+						timeVal, p_shmMsg->userTermPid, ossSeconds, ossUSeconds);
+//			fprintf(logFile,"OSS %s: Child %d is terminating at my time %d.%09d because it reached %d.%09d in slave\n",
+//					timeVal, p_shmMsg->userPid, ossSeconds, ossUSeconds);
+
+//			sem_wait(sem);
+			p_shmMsg->userTermPid = 0;
+			pcbDelete(pcbMap,pcbIndex);
+//			sem_post(sem);
 
 //			childProcessMessageCount++;
 			childProcessCount--; //because a child process completed
@@ -229,10 +245,10 @@ int main(int argc, char *argv[]) {
 			continue;
 
 		char iStr[1];
-		sprintf(iStr, "%d", totalChildProcessCount);
+		sprintf(iStr, " %d", totalChildProcessCount);
 
 		char assignedPcbStr[2];
-		sprintf(assignedPcbStr, "%d", assignedPcb);
+		sprintf(assignedPcbStr, " %d", assignedPcb);
 
 		childpid = fork();
 
@@ -257,6 +273,8 @@ int main(int argc, char *argv[]) {
 
 		// parent will execute
 		if (childpid != 0) {
+
+			pcbAssign(pcbMap, assignedPcb, childpid);
 
 			childpids[totalChildProcessCount] = childpid; // save child pids in an array
 			childProcessCount++; // because we forked above
@@ -348,3 +366,12 @@ int pcbMapNextAvailableIndex(int pcbMap[]) {
  	 p_shmMsg->pcb[index].totalCpuTime = 0;
  	 p_shmMsg->pcb[index].totalTimeInSystem = 0;
   }
+
+ int pcbFindIndex(int pid) {
+	 for (int i = 0; i < MAX_PROCESS_CONTROL_BLOCKS; i++) {
+		 if (p_shmMsg->pcb[i].pid == pid)
+			 return p_shmMsg->pcb[i].pid;
+	 }
+	 return -1;
+ }
+
