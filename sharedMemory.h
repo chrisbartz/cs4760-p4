@@ -36,7 +36,7 @@ typedef struct {
 	int dispatchedPid;
 	int dispatchedTime;
 	int userPid;
-	int userHaltSignal;
+	int userHaltSignal; // 0 terminated 1 halted
 	int userHaltTime;
 	SmProcessControlBlock pcb[MAX_PROCESS_CONTROL_BLOCKS];
 } SmStruct;
