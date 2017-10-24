@@ -38,10 +38,10 @@ char timeVal[30]; 						// store formatted time string for display in logging
 long timeStarted = 0;					// when the OSS clock started
 long timeToStop = 0;					// when the OSS should exit in real time
 
-long totalTurnaroundTime;			// these are for the after action report
-long totalWaitTime;
+long long totalTurnaroundTime;			// these are for the after action report
+long long totalWaitTime;
 int totalProcesses;
-long totalCpuIdleTime;
+long long totalCpuIdleTime;
 
 const int hipri = 0;					// index of priority queues
 const int medpri = 1;
@@ -514,8 +514,8 @@ void pcbUpdateTotalStats(int pcbIndex) {
 	totalProcesses++;
 
 	// my interpretation of the turnaround time is the (OSS) time it takes a process to complete, including wait time
-	int totalSeconds = abs(p_shmMsg->pcb[pcbIndex].endUserSeconds - p_shmMsg->pcb[pcbIndex].startUserSeconds);
-	int totalUSeconds = abs(p_shmMsg->pcb[pcbIndex].endUserUSeconds - p_shmMsg->pcb[pcbIndex].startUserUSeconds);
+	long long totalSeconds = abs(p_shmMsg->pcb[pcbIndex].endUserSeconds - p_shmMsg->pcb[pcbIndex].startUserSeconds);
+	long long totalUSeconds = abs(p_shmMsg->pcb[pcbIndex].endUserUSeconds - p_shmMsg->pcb[pcbIndex].startUserUSeconds);
 	totalTurnaroundTime += ((totalSeconds * 1000 * 1000 * 1000) + totalUSeconds);
 
 	// total wait time is calculated by taking the turnaround time and subtracting the cpu time
@@ -523,6 +523,6 @@ void pcbUpdateTotalStats(int pcbIndex) {
 }
 
 void pcbDisplayTotalStats() {
-	printf("Average Turnaround Time(usec): %ld\nAverage Wait Time(usec): %ld\nCPU Idle Time(usec): %ld\n\n", totalTurnaroundTime/totalProcesses, totalWaitTime/totalProcesses, totalCpuIdleTime);
-	fprintf(logFile, "Average Turnaround Time(usec): %ld\nAverage Wait Time(usec): %ld\nCPU Idle Time(usec): %ld\n\n", totalTurnaroundTime/totalProcesses, totalWaitTime/totalProcesses, totalCpuIdleTime);
+	printf("Average Turnaround Time(usec): %lli\nAverage Wait Time(usec): %lli\nCPU Idle Time(usec): %lli\n\n", totalTurnaroundTime/totalProcesses, totalWaitTime/totalProcesses, totalCpuIdleTime);
+	fprintf(logFile, "Average Turnaround Time(usec): %lli\nAverage Wait Time(usec): %lli\nCPU Idle Time(usec): %lli\n\n", totalTurnaroundTime/totalProcesses, totalWaitTime/totalProcesses, totalCpuIdleTime);
 }
