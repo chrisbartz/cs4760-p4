@@ -13,8 +13,8 @@
 #include "timestamp.h"
 #include "queue.h"
 
-#define DEBUG 1 			// setting to 1 greatly increases number of logging events
-#define TUNING 1
+#define DEBUG 0 			// setting to 1 greatly increases number of logging events
+#define TUNING 0
 #define MAX_WORK_INTERVAL 75 * 1000 * 1000 // max time to work
 #define BINARY_CHOICE 2
 
@@ -90,7 +90,7 @@ if (childId < 0) {
 
 	struct timespec timeperiod;
 	timeperiod.tv_sec = 0;
-	timeperiod.tv_nsec = 5 * 1000;
+	timeperiod.tv_nsec = 5 * 10000;
 
 	while (1) { // main while loop
 
