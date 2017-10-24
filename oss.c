@@ -38,6 +38,11 @@ char timeVal[30]; 						// store formatted time string for display in logging
 long timeStarted = 0;					// when the OSS clock started
 long timeToStop = 0;					// when the OSS should exit in real time
 
+long totalTurnaroundTime;			// these are for the after action report
+long totalWaitTime;
+int totalProcesses;
+long totalCpuIdleTime;
+
 const int hipri = 0;					// index of priority queues
 const int medpri = 1;
 const int lopri = 2;
@@ -61,6 +66,8 @@ int pcbFindIndex(int pid);							// find pcb index of a pid
 int pcbDispatch(int priQueues[3][MAX_PROCESS_CONTROL_BLOCKS], int priQueueQuantums[3]); // dispatch the next priority pcb
 void pcbUpdateStats(int pcbIndex);					// bookkeeping
 void pcbAssignQueue(int priQueues[3][MAX_PROCESS_CONTROL_BLOCKS], int priQueueQuantums[], int pcbIndex); // intelligently assign a pcb a queue
+void pcbUpdateTotalStats(int pcbIndex);				// update total stats for after action report
+void pcbDisplayTotalStats();						// display after action report
 
 int main(int argc, char *argv[]) {
 	int childProcessCount = 0;			// number of child processes spawned
@@ -68,14 +75,14 @@ int main(int argc, char *argv[]) {
 	int maxDispatchedProcessCount = 1;	// limit to number of dispatched child processes
 	int opt; 							// to support argument switches below
 	pid_t childpid;						// store child pid
-	int pcbMap[MAX_PROCESS_CONTROL_BLOCKS];// for keeping track of used pcb blocks
-
 	int maxConcSlaveProcesses = 18;		// max concurrent child processes
 	int maxOssTimeLimitSeconds = 10000;	// max run time in oss seconds
 	char logFileName[50]; 				// name of log file
 	strncpy(logFileName, "log.out", sizeof(logFileName)); // set default log file name
 	int totalRunSeconds = 20; 			// set default total run time in seconds
 	int goClock = 0;					// triggers the time keeping
+
+	int pcbMap[MAX_PROCESS_CONTROL_BLOCKS];// for keeping track of used pcb blocks
 
 	// set up priority queues
 	int priQueues[3][MAX_PROCESS_CONTROL_BLOCKS]; 						// the actual priority queue array; stores pcb #
@@ -193,9 +200,13 @@ int main(int argc, char *argv[]) {
 			if (timeToStop != 0 && timeToStop < getUnixTime()) strncpy(typeOfLimit,"because of real time limit (20s)",50);
 
 			getTime(timeVal);
-//			if (TUNING)
-				printf("\nOSS  %s: Halting %s.\nTotal Processes Spawned: %d\nTotal Processes Reported Time: %d\nOSS Seconds: %d.%09d\nStop Time:    %ld\nCurrent Time: %ld\n",
+			printf("\nOSS  %s: Halting %s.\nTotal Processes Spawned: %d\nTotal Processes Reporting Time: %d\nOSS Seconds(sec): %d.%09d\nStop Time(unix):    %ld\nCurrent Time(unix): %ld\n",
 					timeVal, typeOfLimit, totalChildProcessCount, totalChildProcessCount, ossSeconds, ossUSeconds, timeToStop, getUnixTime());
+
+			fprintf(logFile, "\nOSS  %s: Halting %s.\nTotal Processes Spawned: %d\nTotal Processes Reporting Time: %d\nOSS Seconds(sec): %d.%09d\nStop Time(unix):    %ld\nCurrent Time(unix): %ld\n",
+								timeVal, typeOfLimit, totalChildProcessCount, totalChildProcessCount, ossSeconds, ossUSeconds, timeToStop, getUnixTime());
+
+			pcbDisplayTotalStats();
 
 			kill_detach_destroy_exit(0);
 		}
@@ -217,6 +228,10 @@ int main(int argc, char *argv[]) {
 			}
 
 			increment_clock(quantum);
+
+			// if no processes are dispatched, this is cpu idle time
+			if (dispatchedProcessCount < 1)
+				totalCpuIdleTime += (long) quantum;
 		}
 
 		getTime(timeVal);
@@ -263,6 +278,7 @@ int main(int argc, char *argv[]) {
 
 				// book keeping
 				pcbUpdateStats(pcbIndex);
+				pcbUpdateTotalStats(pcbIndex);
 				pcbDelete(pcbMap, pcbIndex);
 				dispatchedProcessCount--; // because a child process is no longer dispatched
 				childProcessCount--; // because a child process completed
@@ -494,4 +510,19 @@ int pcbMapNextAvailableIndex(int pcbMap[]) {
 	 fprintf(logFile, "OSS  %s: Putting process with PID %d into queue %d \n", timeVal, p_shmMsg->pcb[pcbIndex].pid, assignedQueue);
  }
 
+void pcbUpdateTotalStats(int pcbIndex) {
+	totalProcesses++;
 
+	// my interpretation of the turnaround time is the (OSS) time it takes a process to complete, including wait time
+	int totalSeconds = abs(p_shmMsg->pcb[pcbIndex].endUserSeconds - p_shmMsg->pcb[pcbIndex].startUserSeconds);
+	int totalUSeconds = abs(p_shmMsg->pcb[pcbIndex].endUserUSeconds - p_shmMsg->pcb[pcbIndex].startUserUSeconds);
+	totalTurnaroundTime += ((totalSeconds * 1000 * 1000 * 1000) + totalUSeconds);
+
+	// total wait time is calculated by taking the turnaround time and subtracting the cpu time
+	totalWaitTime += (totalTurnaroundTime - p_shmMsg->pcb[pcbIndex].totalCpuTime);
+}
+
+void pcbDisplayTotalStats() {
+	printf("Average Turnaround Time(usec): %ld\nAverage Wait Time(usec): %ld\nCPU Idle Time(usec): %ld\n\n", totalTurnaroundTime/totalProcesses, totalWaitTime/totalProcesses, totalCpuIdleTime);
+	fprintf(logFile, "Average Turnaround Time(usec): %ld\nAverage Wait Time(usec): %ld\nCPU Idle Time(usec): %ld\n\n", totalTurnaroundTime/totalProcesses, totalWaitTime/totalProcesses, totalCpuIdleTime);
+}

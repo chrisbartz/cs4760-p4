@@ -23,6 +23,10 @@
 #include <sys/stat.h>
 
 typedef struct {
+	int startUserSeconds;
+	int startUserUSeconds;
+	int endUserSeconds;
+	int endUserUSeconds;
 	int totalCpuTime;
 	int totalTimeInSystem;
 	int lastBurstLength;

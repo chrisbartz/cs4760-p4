@@ -30,6 +30,7 @@ int endUSeconds;			// store oss nanoseconds to exit
 int exitSeconds;			// store oss seconds when exiting
 int exitUSeconds;			// store oss nanoseconds when exiting
 
+
 char timeVal[30]; // formatted time values for logging
 
 void do_work(int willRunForThisLong);
@@ -69,15 +70,6 @@ if (childId < 0) {
 
 	startSeconds = p_shmMsg->ossSeconds;
 	startUSeconds = p_shmMsg->ossUSeconds;
-
-	// we're not doing this any more
-	//	endSeconds = startSeconds;
-//	endUSeconds = startUSeconds + interval;
-//
-//	if (endUSeconds > oneMillion) {
-//		endSeconds++;
-//		endUSeconds -= oneMillion;
-//	}
 
 	getTime(timeVal);
 	if (TUNING || DEBUG)
@@ -128,8 +120,15 @@ if (childId < 0) {
 
 			// report back to oss
 			p_shmMsg->userPid = (int) getpid();
-			if (p_shmMsg->pcb[pcbIndex].totalCpuTime + willRunForThisLong > processTimeRequired)
+			if (p_shmMsg->pcb[pcbIndex].totalCpuTime + willRunForThisLong > processTimeRequired) {
 				p_shmMsg->userHaltSignal = 0; // terminating - send last message
+
+				// send total bookkeeping stats
+				p_shmMsg->pcb[pcbIndex].startUserSeconds = startSeconds;
+				p_shmMsg->pcb[pcbIndex].startUserUSeconds = startUSeconds;
+				p_shmMsg->pcb[pcbIndex].endUserSeconds = p_shmMsg->ossSeconds;
+				p_shmMsg->pcb[pcbIndex].endUserUSeconds = p_shmMsg->ossUSeconds;
+			}
 			else
 				p_shmMsg->userHaltSignal = 1; // halting
 			p_shmMsg->userHaltTime = willRunForThisLong;
