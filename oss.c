@@ -18,7 +18,7 @@
 #include "queue.h"
 
 #define DEBUG 1								// setting to 1 greatly increases number of logging events
-#define VERBOSE 1
+#define VERBOSE 0
 #define TUNING 0
 
 const int maxChildProcessCount = 100; 		// limit of total child processes spawned
@@ -54,12 +54,14 @@ int pcbMapNextAvailableIndex();
 void pcbAssign(int pcbMap[], int index, int pid);
 void pcbDelete(int pcbMap[], int index);
 int pcbFindIndex(int pid);
-void pcbDispatch(int priQueues[3][MAX_PROCESS_CONTROL_BLOCKS], int priQueueQuantums[3]);
+int pcbDispatch(int priQueues[3][MAX_PROCESS_CONTROL_BLOCKS], int priQueueQuantums[3]);
 void pcbUpdateStats(int pcbIndex);
 void pcbAssignQueue(int priQueues[3][MAX_PROCESS_CONTROL_BLOCKS], int priQueueQuantums[], int pcbIndex);
 
 int main(int argc, char *argv[]) {
 	int childProcessCount = 0;			// number of child processes spawned
+	int dispatchedProcessCount = 0;		// number of dispatched child processes
+	int maxDispatchedProcessCount = 1;	// limit to number of dispatched child processes
 	int opt; 							// to support argument switches below
 	pid_t childpid;						// store child pid
 	int pcbMap[MAX_PROCESS_CONTROL_BLOCKS];// for keeping track of used pcb blocks
@@ -69,7 +71,7 @@ int main(int argc, char *argv[]) {
 	int maxOssTimeLimitSeconds = 10000;	// max run time in oss seconds
 	char logFileName[50]; 				// name of log file
 	strncpy(logFileName, "log.out", sizeof(logFileName)); // set default log file name
-	int totalRunSeconds = 10; 			// set default total run time in seconds
+	int totalRunSeconds = 20; 			// set default total run time in seconds
 	int goClock = 0;
 
 	// set up priority queues
@@ -206,6 +208,8 @@ int main(int argc, char *argv[]) {
 			increment_clock(quantum);
 		}
 
+		getTime(timeVal);
+		if (DEBUG && VERBOSE) printf( "OSS  %s: CHILD PROCESS COUNT: %d\nMAX CONC PROCESS COUNT: %d\n", timeVal, childProcessCount, maxConcSlaveProcesses);
 
 		// if we have forked up to the max concurrent child processes
 		// then we wait for one to exit before forking another
@@ -217,6 +221,13 @@ int main(int argc, char *argv[]) {
 			timeperiod.tv_sec = 0;
 			timeperiod.tv_nsec = 5 * 10000;
 			nanosleep(&timeperiod, NULL);
+
+			getTime(timeVal);
+			if (DEBUG && VERBOSE) printf( "OSS  %s: DISPATCHED PROCESS COUNT: %d\nMAX DISPATCHED PROCESS COUNT: %d\n", timeVal, dispatchedProcessCount, maxDispatchedProcessCount);
+
+			// we do this check to make sure we have a number of dispatched child processes
+			if (dispatchedProcessCount < maxDispatchedProcessCount)
+				dispatchedProcessCount += pcbDispatch(priQueues, priQueueQuantums);
 
 			// wait for child to send message
 			if (p_shmMsg->userPid == 0)
@@ -233,6 +244,7 @@ int main(int argc, char *argv[]) {
 				// book keeping
 				pcbUpdateStats(pcbIndex);
 				pcbAssignQueue(priQueues, priQueueQuantums, pcbIndex);
+				dispatchedProcessCount--;
 
 				// clear the child signal
 				p_shmMsg->userPid = 0;
@@ -240,7 +252,7 @@ int main(int argc, char *argv[]) {
 				p_shmMsg->userHaltTime = 0;
 
 				// dispatch next process
-				pcbDispatch(priQueues, priQueueQuantums);
+				dispatchedProcessCount += pcbDispatch(priQueues, priQueueQuantums);
 
 //				sem_post(sem);
 				continue;
@@ -248,19 +260,23 @@ int main(int argc, char *argv[]) {
 				if (DEBUG) printf("OSS  %s: Child %d is terminating at my time %d.%09d\n", timeVal, p_shmMsg->userPid, ossSeconds, ossUSeconds);
 
 				// book keeping
+				pcbUpdateStats(pcbIndex);
+				pcbDelete(pcbMap, pcbIndex);
+				dispatchedProcessCount--; // because a child process is no longer dispatched
+				childProcessCount--; // because a child process completed
 
 				// clear the child signal
 				p_shmMsg->userPid = 0;
 				p_shmMsg->userHaltSignal = 0;
 				p_shmMsg->userHaltTime = 0;
 
-				// clean up terminating process
-				pcbDelete(pcbMap, pcbIndex);
-				childProcessCount--; //because a child process completed
 			}
 
 
 		}
+
+		getTime(timeVal);
+		if (DEBUG && VERBOSE) printf( "OSS  %s: Process %d CHILD PROCESS COUNT: %d\n", timeVal, getpid(), childProcessCount);
 
 		if (childProcessCount < maxConcSlaveProcesses){ // if there are less than the number of max concurrent child processes
 														// we create a new one if possible
@@ -311,12 +327,15 @@ int main(int argc, char *argv[]) {
 
 				if (!childrenDispatching) {
 					childrenDispatching = 1;
-					pcbDispatch(priQueues, priQueueQuantums); 	// dispatch the first child process
+					dispatchedProcessCount += pcbDispatch(priQueues, priQueueQuantums); // dispatch the first child process
 				}
 
 				childpids[totalChildProcessCount] = childpid; 	// save child pids in an array
-				childProcessCount++; 							// increment child process count because we forked above
-				totalChildProcessCount++;						// increment total child process count
+				childProcessCount++;
+				totalChildProcessCount++; // increment total child process count
+				getTime(timeVal);
+				if (DEBUG && VERBOSE) printf( "OSS  %s: Process %d CHILD PROCESS COUNT: %d\n", timeVal, getpid(), childProcessCount);// increment child process count because we forked above
+
 
 				getTime(timeVal);
 				if (DEBUG || TUNING)
@@ -403,7 +422,6 @@ int pcbMapNextAvailableIndex(int pcbMap[]) {
  void pcbAssign(int pcbMap[], int index, int pid) {
 	 pcbMap[index] = 1;
 	 p_shmMsg->pcb[index].pid = pid;
-	 p_shmMsg->pcb[index].processPriority = hipri;
 
 	 getTime(timeVal);
 	 if (DEBUG) printf("OSS  %s: Assigning child %d pcb at %d.%09d\n", timeVal, p_shmMsg->pcb[index].pid, ossSeconds, ossUSeconds);
@@ -431,8 +449,9 @@ int pcbMapNextAvailableIndex(int pcbMap[]) {
 	 return -1;
  }
 
- void pcbDispatch(int priQueues[3][MAX_PROCESS_CONTROL_BLOCKS], int priQueueQuantums[]) {
+ int pcbDispatch(int priQueues[3][MAX_PROCESS_CONTROL_BLOCKS], int priQueueQuantums[]) {
  	 for (int i = 0; i < 3; i++) {
+ 		 if (DEBUG && VERBOSE) printQueue(priQueues[i]);
  		 int pcbIndex = pop(priQueues[i]);
  		 if (pcbIndex > -1) {
  			 p_shmMsg->dispatchedPid = p_shmMsg->pcb[pcbIndex].pid;
@@ -441,9 +460,10 @@ int pcbMapNextAvailableIndex(int pcbMap[]) {
  			 getTime(timeVal);
  			 printf("OSS  %s: Dispatching process with PID %d from queue %d at time %d.%09d\n", timeVal, p_shmMsg->pcb[pcbIndex].pid, i, ossSeconds, ossUSeconds);
  			 fprintf(logFile, "OSS  %s: Dispatching process with PID %d from queue %d at time %d.%09d\n", timeVal, p_shmMsg->pcb[pcbIndex].pid, i, ossSeconds, ossUSeconds);
- 			 break;
+ 			 return 1;
  		 }
  	 }
+ 	 return 0;
   }
 
  void pcbUpdateStats(int pcbIndex) {

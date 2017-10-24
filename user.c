@@ -128,7 +128,10 @@ if (childId < 0) {
 
 			// report back to oss
 			p_shmMsg->userPid = (int) getpid();
-			p_shmMsg->userHaltSignal = 1;
+			if (p_shmMsg->pcb[pcbIndex].totalCpuTime + willRunForThisLong > processTimeRequired)
+				p_shmMsg->userHaltSignal = 0; // terminating - send last message
+			else
+				p_shmMsg->userHaltSignal = 1; // halting
 			p_shmMsg->userHaltTime = willRunForThisLong;
 
 			sem_post(sem);
