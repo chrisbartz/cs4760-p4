@@ -8,8 +8,9 @@
 
 // set up shared memory keys for communication
 #define SHM_MSG_KEY 98753
-#define SHMSIZE sizeof(SmTimeStruct)
-#define SEM_NAME "cyb01b_p3"
+#define SHMSIZE sizeof(SmStruct)
+#define SEM_NAME "cyb01b_p4"
+#define MAX_PROCESS_CONTROL_BLOCKS 18
 
 #include <fcntl.h>
 #include <stdio.h>
@@ -22,12 +23,27 @@
 #include <sys/stat.h>
 
 typedef struct {
+	int startUserSeconds;
+	int startUserUSeconds;
+	int endUserSeconds;
+	int endUserUSeconds;
+	int totalCpuTime;
+	int totalTimeInSystem;
+	int lastBurstLength;
+	int processPriority;
+	int pid;
+} SmProcessControlBlock;
+
+typedef struct {
 	int ossSeconds;
 	int ossUSeconds;
-	int userSeconds;
-	int userUSeconds;
+	int dispatchedPid;
+	int dispatchedTime;
 	int userPid;
-} SmTimeStruct;
+	int userHaltSignal; // 0 terminated 1 halted
+	int userHaltTime;
+	SmProcessControlBlock pcb[MAX_PROCESS_CONTROL_BLOCKS];
+} SmStruct;
 
 sem_t* open_semaphore(int createSemaphore);
 

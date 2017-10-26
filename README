@@ -8,11 +8,11 @@ syntax: ./oss <arguments>
 arguments:
 -l testfilename will specify a custom log filename.  Default is log.out.
 -q # will set a custom quantum amount for incrementing the OSS clock each cycle.  Default is 10000.
--s # will set the number of concurrent slave processes.  Default is 5. 
+-s # will set the number of concurrent slave processes.  Default is 18. 
 -t # will set the total number of real seconds OSS will limit its run.  Default is 20.
 -h 	 will print a help message.
 
-Source with revision control is at https://github.com/chrisbartz/cs4760-p3
+Source with revision control is at https://github.com/chrisbartz/cs4760-p4
 
 The project has most requirements working or at least attempted:
 
@@ -21,47 +21,60 @@ shared memory working
 semaphores working
 
 Parent:
-OSS use of fork working
-OSS use of exec working
-OSS forks off children before starting OSS clock 
-OSS forks more children as others terminate 
+OSS forks multiple children at "randomized" times
+OSS keeps a simulated clock
 OSS allocates shared memory
-OSS maintains a system clock in shared memory
-OSS clock consists of 1 integers for seconds and useconds
-OSS clock initially set to 0
-OSS increments the clock every loop
-OSS checks shmMsg for messages from USER
-OSS outpus USER message to a log file
-OSS terminates after 2 OSS seconds or 100 processes or 20 real seconds
-OSS cleans up semaphores - memory cleanup is still an issue **
-OSS handles SIGINT by killing child processes and cleaning up shared memory, semaphores, and open files
+OSS allocates process control blocks (x18)
+OSS keeps track of total CPU time, total time in system, time used in last burst, process priority
+OSS has local bit vector to keep track of used PCBs
+OSS creates children at around a child per second
+OSS updates oss clock which keeps time in seconds, nanoseconds
+OSS clock is available in shared memory to all processes, including child processes
+OSS runs concurrently with user processes
+OSS loops and schedules and creates processes
+OSS generates a PCB for each child process
+OSS child execls the user program
+OSS advances the oss clock (but not by 1 second each loop because of wanting to control the oss clock rate)
+OSS utilizes a random variable plus system clock to control child creation
+OSS schedules for a single process (with multiple possible) to be dispatched from the priority queues
+OSS maintains multi level process queue with priority
+OSS will demote long running processes to lower priority queues
+OSS has #defined priority queue values
+OSS dispatches processes based on priority by placing pid and time quantum in shared memory
+OSS terminates all children on SIGINT
+OSS still DOES NOT completely delete shared memory, despite the commands to do so
 
 Children:
-USER is a separate executable from OSS
-USER can view OSS clock in shared memory but do not change it
-USER can send messages through shared memory named shmMsg
-USER reads OSS time through shared memory and then calculates a "random" time to terminate
-USER controls critical section through use of semaphores
-USER sends a message to OSS when its time is up and then terminates
-USER cedes its turn after it is finished with the critical section
-USER waits for the shmMsg to be clear before writing in the critical section
-USER processes will terminate if a SIGTERM is received
+USER checks shared memory for the signal to start executing and then starts when it receives the signal
+USER utilizes random number to determine whether it uses the entire quantum or partial
+USER utilizes random number to determine whether the amound of partial quantum it uses
+USER sends message when halted/terminated to OSS which updates PCB stats
+USER is assigned a queue after it halts execution
+USER checks to see if it is done executing and then sends appropriate signal to OSS who removes PCB when USER is terminated
 
 Others:
 project is available in Github
 makefile implemented
 README implemented
-default settings will spawn up to 100 children in 2 OSS seconds or up to 20 real seconds
+PCB process control block contains information on managing child process scheduling
+PCB is in shared memory and readable by child process
+Simulation ends with execution statistics including average turnaround time, average wait time, idle CPU time
 
 There are a few example commands that work for this project
 
 ./oss 
 ./oss -l thisisastrangelogfilename.log
 ./oss -q 10001
-./oss -s 6
+./oss -s 5
 ./oss -t 5000
 ./oss -l notagreatcombo.log -q 1 -s 15 -t 5000
 
+Last minute note:
+I still run into resource issues on hoare when forking with a large number of concurrent slave processes (default 18), 
+so my suggestion is to run oss with a switch that limits the number of concurrent slave processes to 5 by running the
+following command:
+
+./oss -s 5
 
 
 

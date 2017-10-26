@@ -7,7 +7,6 @@
 #include "sharedMemory.h"
 
 #define DEBUG 0
-#define SHMSIZE sizeof(SmTimeStruct)
 
 sem_t* open_semaphore(int createSemaphore) {
 	if (DEBUG) printf("sharedMemory: Creating semaphore\n");
